@@ -1,3 +1,7 @@
+/* VIVENTIUM START
+ * Purpose: Viventium-owned addition copied into LibreChat fork.
+ * Details: docs/requirements_and_learnings/05_Open_Source_Modifications.md#librechat-viventium-additions
+ * VIVENTIUM END */
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import AuthManager from './auth.js';
@@ -91,70 +95,65 @@ export function registerAuthTools(server: McpServer, authManager: AuthManager): 
     };
   });
 
-  server.tool(
-    'list-accounts',
-    'List all Microsoft accounts configured in this server. Use this to discover available account emails before making tool calls. Reflects accounts added mid-session via --login.',
-    {},
-    {
-      title: 'list-accounts',
-      readOnlyHint: true,
-      openWorldHint: false,
-    },
-    async () => {
-      try {
-        const accounts = await authManager.listAccounts();
-        const selectedAccountId = authManager.getSelectedAccountId();
-        const result = accounts.map((account) => ({
-          email: account.username || 'unknown',
-          name: account.name,
-          isDefault: account.homeAccountId === selectedAccountId,
-        }));
+  server.tool('list-accounts', 'List all available Microsoft accounts', {}, async () => {
+    try {
+      const accounts = await authManager.listAccounts();
+      const selectedAccountId = authManager.getSelectedAccountId();
+      const result = accounts.map((account) => ({
+        id: account.homeAccountId,
+        username: account.username,
+        name: account.name,
+        selected: account.homeAccountId === selectedAccountId,
+      }));
 
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({
-                accounts: result,
-                count: result.length,
-                tip: "Pass the 'email' value as the 'account' parameter in any tool call to target a specific account.",
-              }),
-            },
-          ],
-        };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({
-                error: `Failed to list accounts: ${(error as Error).message}`,
-              }),
-            },
-          ],
-          isError: true,
-        };
-      }
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ accounts: result }),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ error: `Failed to list accounts: ${(error as Error).message}` }),
+          },
+        ],
+      };
     }
-  );
+  });
 
   server.tool(
     'select-account',
-    'Select a Microsoft account as the default. Accepts email address (e.g. user@outlook.com) or account ID. Use list-accounts to discover available accounts.',
+    'Select a specific Microsoft account to use',
     {
-      account: z.string().describe('Email address or account ID of the account to select'),
+      accountId: z.string().describe('The account ID to select'),
     },
-    async ({ account }) => {
+    async ({ accountId }) => {
       try {
-        await authManager.selectAccount(account);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({ message: `Selected account: ${account}` }),
-            },
-          ],
-        };
+        const success = await authManager.selectAccount(accountId);
+        if (success) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({ message: `Selected account: ${accountId}` }),
+              },
+            ],
+          };
+        } else {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({ error: `Account not found: ${accountId}` }),
+              },
+            ],
+          };
+        }
       } catch (error) {
         return {
           content: [
@@ -165,7 +164,6 @@ export function registerAuthTools(server: McpServer, authManager: AuthManager): 
               }),
             },
           ],
-          isError: true,
         };
       }
     }
@@ -173,19 +171,19 @@ export function registerAuthTools(server: McpServer, authManager: AuthManager): 
 
   server.tool(
     'remove-account',
-    'Remove a Microsoft account from the cache. Accepts email address (e.g. user@outlook.com) or account ID. Use list-accounts to discover available accounts.',
+    'Remove a Microsoft account from the cache',
     {
-      account: z.string().describe('Email address or account ID of the account to remove'),
+      accountId: z.string().describe('The account ID to remove'),
     },
-    async ({ account }) => {
+    async ({ accountId }) => {
       try {
-        const success = await authManager.removeAccount(account);
+        const success = await authManager.removeAccount(accountId);
         if (success) {
           return {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify({ message: `Removed account: ${account}` }),
+                text: JSON.stringify({ message: `Removed account: ${accountId}` }),
               },
             ],
           };
@@ -194,10 +192,9 @@ export function registerAuthTools(server: McpServer, authManager: AuthManager): 
             content: [
               {
                 type: 'text',
-                text: JSON.stringify({ error: `Failed to remove account from cache: ${account}` }),
+                text: JSON.stringify({ error: `Account not found: ${accountId}` }),
               },
             ],
-            isError: true,
           };
         }
       } catch (error) {
@@ -210,7 +207,6 @@ export function registerAuthTools(server: McpServer, authManager: AuthManager): 
               }),
             },
           ],
-          isError: true,
         };
       }
     }

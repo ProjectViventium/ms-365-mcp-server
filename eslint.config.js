@@ -1,3 +1,7 @@
+/* VIVENTIUM START
+ * Purpose: Viventium-owned addition copied into LibreChat fork.
+ * Details: docs/requirements_and_learnings/05_Open_Source_Modifications.md#librechat-viventium-additions
+ * VIVENTIUM END */
 import js from '@eslint/js';
 import globals from 'globals';
 import tseslint from '@typescript-eslint/eslint-plugin';

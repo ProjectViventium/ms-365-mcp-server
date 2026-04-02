@@ -1,3 +1,7 @@
+/* VIVENTIUM START
+ * Purpose: Viventium-owned addition copied into LibreChat fork.
+ * Details: docs/requirements_and_learnings/05_Open_Source_Modifications.md#librechat-viventium-additions
+ * VIVENTIUM END */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerGraphTools } from '../src/graph-tools.js';
@@ -51,8 +55,7 @@ describe('Tool Filtering', () => {
   it('should register all tools when no filter is provided', () => {
     registerGraphTools(server, graphClient, false);
 
-    // 5 mocked endpoints + 1 parse-teams-url utility tool
-    expect(toolSpy).toHaveBeenCalledTimes(6);
+    expect(toolSpy).toHaveBeenCalledTimes(5);
     expect(toolSpy).toHaveBeenCalledWith(
       'list-mail-messages',
       expect.any(String),
@@ -133,8 +136,7 @@ describe('Tool Filtering', () => {
   it('should handle invalid regex patterns gracefully', () => {
     registerGraphTools(server, graphClient, false, '[invalid regex');
 
-    // 5 mocked endpoints + 1 parse-teams-url utility tool (no filter applied on invalid regex)
-    expect(toolSpy).toHaveBeenCalledTimes(6);
+    expect(toolSpy).toHaveBeenCalledTimes(5);
   });
 
   it('should combine read-only and filtering correctly', () => {

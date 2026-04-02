@@ -1,15 +1,19 @@
+/* VIVENTIUM START
+ * Purpose: Viventium-owned addition copied into LibreChat fork.
+ * Details: docs/requirements_and_learnings/05_Open_Source_Modifications.md#librechat-viventium-additions
+ * VIVENTIUM END */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import logger from './logger.js';
 import GraphClient from './graph-client.js';
-import AuthManager from './auth.js';
 import { api } from './generated/client.js';
 import { z } from 'zod';
 import { readFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { TOOL_CATEGORIES } from './tool-categories.js';
-import { getRequestTokens } from './request-context.js';
-import { parseTeamsUrl } from './lib/teams-url-parser.js';
+// ===== PAI Mod Start =====
+import { normalizeGraphPath } from './path-utils.js';
+// ===== PAI Mod End =====
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,11 +26,7 @@ interface EndpointConfig {
   workScopes?: string[];
   returnDownloadUrl?: boolean;
   supportsTimezone?: boolean;
-  supportsExpandExtendedProperties?: boolean;
   llmTip?: string;
-  skipEncoding?: string[]; // Parameter names that should NOT be URL-encoded (for function-style API calls)
-  contentType?: string;
-  acceptType?: string; // Custom Accept header for endpoints returning non-JSON content (e.g., text/vtt)
 }
 
 const endpointsData = JSON.parse(
@@ -91,51 +91,22 @@ async function executeGraphTool(
   tool: (typeof api.endpoints)[0],
   config: EndpointConfig | undefined,
   graphClient: GraphClient,
-  params: Record<string, unknown>,
-  authManager?: AuthManager
+  params: Record<string, unknown>
 ): Promise<CallToolResult> {
   logger.info(`Tool ${tool.alias} called with params: ${JSON.stringify(params)}`);
   try {
-    // Resolve account-specific token if `account` parameter is provided (or auto-resolve for single account).
-    // Skip in OAuth/HTTP mode — let the request context drive token selection via GraphClient.
-    // Also skip when a request-context token exists (HTTP/OAuth flow where token comes from middleware).
-    let accountAccessToken: string | undefined;
-    if (authManager && !authManager.isOAuthModeEnabled() && !getRequestTokens()) {
-      const accountParam = params.account as string | undefined;
-      try {
-        accountAccessToken = await authManager.getTokenForAccount(accountParam);
-      } catch (err) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({ error: (err as Error).message }),
-            },
-          ],
-          isError: true,
-        };
-      }
-    }
-
     const parameterDefinitions = tool.parameters || [];
 
-    let path = tool.path;
+    // ===== PAI Mod Start =====
+    let path = normalizeGraphPath(tool.path);
+    // ===== PAI Mod End =====
     const queryParams: Record<string, string> = {};
     const headers: Record<string, string> = {};
     let body: unknown = null;
 
     for (const [paramName, paramValue] of Object.entries(params)) {
       // Skip control parameters - not part of the Microsoft Graph API
-      if (
-        [
-          'account',
-          'fetchAllPages',
-          'includeHeaders',
-          'excludeResponse',
-          'timezone',
-          'expandExtendedProperties',
-        ].includes(paramName)
-      ) {
+      if (['fetchAllPages', 'includeHeaders', 'excludeResponse', 'timezone'].includes(paramName)) {
         continue;
       }
 
@@ -156,47 +127,21 @@ async function executeGraphTool(
       const normalizedParamName = paramName.startsWith('$') ? paramName.slice(1) : paramName;
       const isOdataParam = odataParams.includes(normalizedParamName.toLowerCase());
       const fixedParamName = isOdataParam ? `$${normalizedParamName.toLowerCase()}` : paramName;
-      // Convert kebab-case param names to camelCase for path param matching.
-      // endpoints.json uses {message-id} but hack.ts extracts :messageId (camelCase) from the path.
-      // LLMs may pass "message-id" (kebab) — we normalize so both forms work.
-      const camelCaseParamName = paramName.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
-
-      // Look up param definition using normalized name (without $) for OData params,
-      // or camelCase equivalent for kebab-case path params
+      // Look up param definition using normalized name (without $) for OData params
       const paramDef = parameterDefinitions.find(
-        (p) =>
-          p.name === paramName ||
-          p.name === camelCaseParamName ||
-          (isOdataParam && p.name === normalizedParamName)
+        (p) => p.name === paramName || (isOdataParam && p.name === normalizedParamName)
       );
 
       if (paramDef) {
         switch (paramDef.type) {
-          case 'Path': {
-            // Check if this parameter should skip URL encoding (for function-style API calls)
-            const shouldSkipEncoding = config?.skipEncoding?.includes(paramName) ?? false;
-            // Use encodeURIComponent but preserve '=' which is valid in path segments (RFC 3986)
-            // and commonly appears in Microsoft Graph base64-encoded resource IDs.
-            // Without this, IDs like "AAMk...AAA=" become "AAMk...AAA%3D" causing 404 errors.
-            // First we encode, then unencode. Crazy, check out https://github.com/Softeria/ms-365-mcp-server/issues/245
-            const encodedValue = shouldSkipEncoding
-              ? (paramValue as string)
-              : encodeURIComponent(paramValue as string).replace(/%3D/g, '=');
-
-            // Replace both the original param name and the camelCase variant
-            // to handle {message-id} (endpoints.json) and :messageId (generated client) formats
+          case 'Path':
             path = path
-              .replace(`{${paramName}}`, encodedValue)
-              .replace(`:${paramName}`, encodedValue)
-              .replace(`{${camelCaseParamName}}`, encodedValue)
-              .replace(`:${camelCaseParamName}`, encodedValue);
+              .replace(`{${paramName}}`, encodeURIComponent(paramValue as string))
+              .replace(`:${paramName}`, encodeURIComponent(paramValue as string));
             break;
-          }
 
           case 'Query':
-            if (paramValue !== '' && paramValue != null) {
-              queryParams[fixedParamName] = `${paramValue}`;
-            }
+            queryParams[fixedParamName] = `${paramValue}`;
             break;
 
           case 'Body':
@@ -228,65 +173,18 @@ async function executeGraphTool(
       } else if (paramName === 'body') {
         body = paramValue;
         logger.info(`Set body param: ${JSON.stringify(body)}`);
-      } else if (
-        path.includes(`:${paramName}`) ||
-        path.includes(`{${paramName}}`) ||
-        path.includes(`:${camelCaseParamName}`) ||
-        path.includes(`{${camelCaseParamName}}`)
-      ) {
-        // Fallback: path param not declared in tool.parameters (generated client omits them).
-        // Replace placeholder directly so the URL is valid.
-        const encodedValue = encodeURIComponent(paramValue as string).replace(/%3D/g, '=');
-        path = path
-          .replace(`{${paramName}}`, encodedValue)
-          .replace(`:${paramName}`, encodedValue)
-          .replace(`{${camelCaseParamName}}`, encodedValue)
-          .replace(`:${camelCaseParamName}`, encodedValue);
-        logger.info(`Path param fallback: replaced :${camelCaseParamName} with encoded value`);
       }
     }
-
-    const preferValues: string[] = [];
 
     // Handle timezone parameter for calendar endpoints
     if (config?.supportsTimezone && params.timezone) {
-      preferValues.push(`outlook.timezone="${params.timezone}"`);
-      logger.info(`Setting timezone preference: outlook.timezone="${params.timezone}"`);
-    }
-
-    const bodyFormat = process.env.MS365_MCP_BODY_FORMAT || 'text';
-    if (bodyFormat !== 'html') {
-      preferValues.push(`outlook.body-content-type="${bodyFormat}"`);
-    }
-
-    if (preferValues.length > 0) {
-      headers['Prefer'] = preferValues.join(', ');
-    }
-
-    // Handle expandExtendedProperties parameter for calendar endpoints
-    if (config?.supportsExpandExtendedProperties && params.expandExtendedProperties === true) {
-      const expandValue = 'singleValueExtendedProperties';
-      if (queryParams['$expand']) {
-        queryParams['$expand'] += `,${expandValue}`;
-      } else {
-        queryParams['$expand'] = expandValue;
-      }
-      logger.info(`Adding $expand=${expandValue} for extended properties`);
-    }
-
-    if (config?.contentType) {
-      headers['Content-Type'] = config.contentType;
-      logger.info(`Setting custom Content-Type: ${config.contentType}`);
-    }
-
-    if (config?.acceptType) {
-      headers['Accept'] = config.acceptType;
-      logger.info(`Setting custom Accept: ${config.acceptType}`);
+      headers['Prefer'] = `outlook.timezone="${params.timezone}"`;
+      logger.info(`Setting timezone header: Prefer: outlook.timezone="${params.timezone}"`);
     }
 
     if (Object.keys(queryParams).length > 0) {
       const queryString = Object.entries(queryParams)
-        .map(([key, value]) => `${key}=${encodeURIComponent(value).replace(/%2C/gi, ',')}`)
+        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
         .join('&');
       path = `${path}${path.includes('?') ? '&' : '?'}${queryString}`;
     }
@@ -299,24 +197,13 @@ async function executeGraphTool(
       includeHeaders?: boolean;
       excludeResponse?: boolean;
       queryParams?: Record<string, string>;
-      accessToken?: string;
     } = {
       method: tool.method.toUpperCase(),
       headers,
     };
 
     if (options.method !== 'GET' && body) {
-      if (config?.contentType === 'text/html') {
-        if (typeof body === 'string') {
-          options.body = body;
-        } else if (typeof body === 'object' && 'content' in body) {
-          options.body = (body as { content: string }).content;
-        } else {
-          options.body = String(body);
-        }
-      } else {
-        options.body = typeof body === 'string' ? body : JSON.stringify(body);
-      }
+      options.body = typeof body === 'string' ? body : JSON.stringify(body);
     }
 
     const isProbablyMediaContent =
@@ -342,17 +229,7 @@ async function executeGraphTool(
       options.excludeResponse = true;
     }
 
-    // Pass account-resolved token if available
-    if (accountAccessToken) {
-      options.accessToken = accountAccessToken;
-    }
-
-    // Redact accessToken from log output to prevent credential leakage
-    const { accessToken: _redacted, ...safeOptions } = options;
-    logger.info(
-      `Making graph request to ${path} with options: ${JSON.stringify(safeOptions)}${_redacted ? ' [accessToken=REDACTED]' : ''}`
-    );
-
+    logger.info(`Making graph request to ${path} with options: ${JSON.stringify(options)}`);
     let response = await graphClient.graphRequest(path, options);
 
     const fetchAllPages = params.fetchAllPages === true;
@@ -458,10 +335,7 @@ export function registerGraphTools(
   graphClient: GraphClient,
   readOnly: boolean = false,
   enabledToolsPattern?: string,
-  orgMode: boolean = false,
-  authManager?: AuthManager,
-  multiAccount: boolean = false,
-  accountNames: string[] = []
+  orgMode: boolean = false
 ): number {
   let enabledToolsRegex: RegExp | undefined;
   if (enabledToolsPattern) {
@@ -504,89 +378,10 @@ export function registerGraphTools(
       }
     }
 
-    // Extract path parameters from the path pattern (e.g., :todoTaskListId from /me/todo/lists/:todoTaskListId/tasks)
-    // The generated client omits these from tool.parameters, so we add them manually.
-    const pathParamMatches = tool.path.matchAll(/:([a-zA-Z]+)/g);
-    for (const match of pathParamMatches) {
-      const pathParamName = match[1];
-      if (!(pathParamName in paramSchema)) {
-        paramSchema[pathParamName] = z.string().describe(`Path parameter: ${pathParamName}`);
-      }
-    }
-
     if (tool.method.toUpperCase() === 'GET' && tool.path.includes('/')) {
       paramSchema['fetchAllPages'] = z
         .boolean()
         .describe('Automatically fetch all pages of results')
-        .optional();
-    }
-
-    // Override OData parameter descriptions with spec-gap guidance
-    if (paramSchema['filter'] !== undefined || paramSchema['$filter'] !== undefined) {
-      const key = paramSchema['$filter'] !== undefined ? '$filter' : 'filter';
-      paramSchema[key] = z
-        .string()
-        .describe(
-          'OData filter expression. Add $count=true for advanced filters (flag/flagStatus, contains()). Cannot combine with $search.'
-        )
-        .optional();
-    }
-    if (paramSchema['search'] !== undefined || paramSchema['$search'] !== undefined) {
-      const key = paramSchema['$search'] !== undefined ? '$search' : 'search';
-      paramSchema[key] = z
-        .string()
-        .describe('KQL search query — wrap value in double quotes. Cannot combine with $filter.')
-        .optional();
-    }
-    if (paramSchema['select'] !== undefined || paramSchema['$select'] !== undefined) {
-      const key = paramSchema['$select'] !== undefined ? '$select' : 'select';
-      paramSchema[key] = z
-        .string()
-        .describe('Comma-separated fields to return, e.g. id,subject,from,receivedDateTime')
-        .optional();
-    }
-    if (paramSchema['orderby'] !== undefined || paramSchema['$orderby'] !== undefined) {
-      const key = paramSchema['$orderby'] !== undefined ? '$orderby' : 'orderby';
-      paramSchema[key] = z
-        .string()
-        .describe('Sort expression, e.g. receivedDateTime desc')
-        .optional();
-    }
-    if (paramSchema['top'] !== undefined || paramSchema['$top'] !== undefined) {
-      const key = paramSchema['$top'] !== undefined ? '$top' : 'top';
-      paramSchema[key] = z.number().describe('Max items per page').optional();
-    }
-    if (paramSchema['skip'] !== undefined || paramSchema['$skip'] !== undefined) {
-      const key = paramSchema['$skip'] !== undefined ? '$skip' : 'skip';
-      paramSchema[key] = z
-        .number()
-        .describe('Items to skip for pagination. Not supported with $search.')
-        .optional();
-    }
-    if (paramSchema['count'] !== undefined || paramSchema['$count'] !== undefined) {
-      const countKey = paramSchema['$count'] !== undefined ? '$count' : 'count';
-      paramSchema[countKey] = z
-        .boolean()
-        .describe(
-          'Set true to enable advanced query mode (ConsistencyLevel: eventual). Required for complex $filter on flag/flagStatus or contains().'
-        )
-        .optional();
-    }
-
-    // Add account parameter for multi-account mode.
-    // Layer 2: Account names are surfaced in the description (not as a strict enum) so the LLM
-    // sees available accounts upfront without a round-trip, but accounts added mid-session via
-    // --login are still accepted — getTokenForAccount() handles validation at runtime.
-    if (multiAccount) {
-      const accountHint =
-        accountNames.length > 0 ? `Known accounts: ${accountNames.join(', ')}. ` : '';
-      paramSchema['account'] = z
-        .string()
-        .describe(
-          `${accountHint}Microsoft account email to use for this request. ` +
-            `Required when multiple accounts are configured. ` +
-            `Use the list-accounts tool to discover all currently available accounts.`
-        )
         .optional();
     }
 
@@ -612,16 +407,6 @@ export function registerGraphTools(
         .optional();
     }
 
-    // Add expandExtendedProperties parameter for calendar endpoints that support it
-    if (endpointConfig?.supportsExpandExtendedProperties) {
-      paramSchema['expandExtendedProperties'] = z
-        .boolean()
-        .describe(
-          'When true, expands singleValueExtendedProperties on each event. Use this to retrieve custom extended properties (e.g., sync metadata) stored on calendar events.'
-        )
-        .optional();
-    }
-
     // Build the tool description, optionally appending LLM tips
     let toolDescription =
       tool.description || `Execute ${tool.method.toUpperCase()} request to ${tool.path}`;
@@ -637,10 +422,8 @@ export function registerGraphTools(
         {
           title: tool.alias,
           readOnlyHint: tool.method.toUpperCase() === 'GET',
-          destructiveHint: ['POST', 'PATCH', 'DELETE'].includes(tool.method.toUpperCase()),
-          openWorldHint: true, // All tools call Microsoft Graph API
         },
-        async (params) => executeGraphTool(tool, endpointConfig, graphClient, params, authManager)
+        async (params) => executeGraphTool(tool, endpointConfig, graphClient, params)
       );
       registeredCount++;
     } catch (error) {
@@ -648,48 +431,6 @@ export function registerGraphTools(
       failedCount++;
     }
   }
-
-  if (multiAccount) {
-    logger.info('Multi-account mode: "account" parameter injected into all tool schemas');
-  }
-
-  // Register parse-teams-url utility tool (no Graph API call)
-  if (!enabledToolsRegex || enabledToolsRegex.test('parse-teams-url')) {
-    try {
-      server.tool(
-        'parse-teams-url',
-        'Converts any Teams meeting URL format (short /meet/, full /meetup-join/, or recap ?threadId=) into a standard joinWebUrl. Use this before list-online-meetings when the user provides a recap or short URL.',
-        {
-          url: z.string().describe('Teams meeting URL in any format'),
-        },
-        {
-          title: 'parse-teams-url',
-          readOnlyHint: true,
-          openWorldHint: false,
-        },
-        async ({ url }) => {
-          try {
-            const joinWebUrl = parseTeamsUrl(url);
-            return { content: [{ type: 'text', text: joinWebUrl }] };
-          } catch (error) {
-            return {
-              content: [
-                { type: 'text', text: JSON.stringify({ error: (error as Error).message }) },
-              ],
-              isError: true,
-            };
-          }
-        }
-      );
-      registeredCount++;
-    } catch (error) {
-      logger.error(`Failed to register tool parse-teams-url: ${(error as Error).message}`);
-      failedCount++;
-    }
-  }
-
-  // Layer 3 (list-accounts tool) is registered by registerAuthTools in auth-tools.ts.
-  // It is the canonical owner of account discovery — no duplicate registration here.
 
   logger.info(
     `Tool registration complete: ${registeredCount} registered, ${skippedCount} skipped, ${failedCount} failed`
@@ -727,9 +468,7 @@ export function registerDiscoveryTools(
   server: McpServer,
   graphClient: GraphClient,
   readOnly: boolean = false,
-  orgMode: boolean = false,
-  authManager?: AuthManager,
-  _multiAccount: boolean = false
+  orgMode: boolean = false
 ): void {
   const toolsRegistry = buildToolsRegistry(readOnly, orgMode);
   logger.info(`Discovery mode: ${toolsRegistry.size} tools available in registry`);
@@ -753,7 +492,6 @@ export function registerDiscoveryTools(
     {
       title: 'search-tools',
       readOnlyHint: true,
-      openWorldHint: true, // Searches Microsoft Graph API tools
     },
     async ({ query, category, limit = 20 }) => {
       const maxLimit = Math.min(limit, 50);
@@ -823,8 +561,6 @@ export function registerDiscoveryTools(
     {
       title: 'execute-tool',
       readOnlyHint: false,
-      destructiveHint: true, // Can execute any tool, including write operations
-      openWorldHint: true, // Executes against Microsoft Graph API
     },
     async ({ tool_name, parameters = {} }) => {
       const toolData = toolsRegistry.get(tool_name);
@@ -843,9 +579,7 @@ export function registerDiscoveryTools(
         };
       }
 
-      return executeGraphTool(toolData.tool, toolData.config, graphClient, parameters, authManager);
+      return executeGraphTool(toolData.tool, toolData.config, graphClient, parameters);
     }
   );
-
-  // Layer 3 (list-accounts) is registered by registerAuthTools — no duplicate here.
 }

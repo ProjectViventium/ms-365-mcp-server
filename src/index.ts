@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+/* VIVENTIUM START
+ * Purpose: Viventium-owned addition copied into LibreChat fork.
+ * Details: docs/requirements_and_learnings/05_Open_Source_Modifications.md#librechat-viventium-additions
+ * VIVENTIUM END */
 
 import 'dotenv/config';
 import { parseArgs } from './cli.js';
@@ -80,9 +84,7 @@ async function main(): Promise<void> {
     await server.initialize(version);
     await server.start();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.error(`Startup error: ${message}`);
-    console.error(message);
+    logger.error(`Startup error: ${error}`);
     process.exit(1);
   }
 }

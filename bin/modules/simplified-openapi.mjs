@@ -1,3 +1,7 @@
+/* VIVENTIUM START
+ * Purpose: Viventium-owned addition copied into LibreChat fork.
+ * Details: docs/requirements_and_learnings/05_Open_Source_Modifications.md#librechat-viventium-additions
+ * VIVENTIUM END */
 import fs from 'fs';
 import yaml from 'js-yaml';
 
@@ -253,24 +257,6 @@ function reduceProperties(schema, schemaName) {
       'path',
       'method',
       'enabled',
-      'singleValueExtendedProperties',
-      'multiValueExtendedProperties',
-      'start',
-      'end',
-      'location',
-      'showAs',
-      'sensitivity',
-      'isAllDay',
-      'importance',
-      'isOnlineMeeting',
-      'isReminderOn',
-      'attendees',
-      'recurrence',
-      'reminderMinutesBeforeStart',
-      'allowNewTimeProposals',
-      'responseRequested',
-      'from',
-      'toRecipients',
     ];
 
     const keptProperties = {};
@@ -282,14 +268,12 @@ function reduceProperties(schema, schemaName) {
       }
     });
 
-    const remainingSlots = Math.max(0, 25 - Object.keys(keptProperties).length);
+    const remainingSlots = 25 - Object.keys(keptProperties).length;
     const otherKeys = propertyKeys.filter((key) => !keptProperties[key]);
 
-    if (remainingSlots > 0) {
-      otherKeys.slice(0, remainingSlots).forEach((key) => {
-        keptProperties[key] = properties[key];
-      });
-    }
+    otherKeys.slice(0, remainingSlots).forEach((key) => {
+      keptProperties[key] = properties[key];
+    });
 
     schema.properties = keptProperties;
     schema.additionalProperties = true;

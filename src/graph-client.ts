@@ -1,10 +1,12 @@
+/* VIVENTIUM START
+ * Purpose: Viventium-owned addition copied into LibreChat fork.
+ * Details: docs/requirements_and_learnings/05_Open_Source_Modifications.md#librechat-viventium-additions
+ * VIVENTIUM END */
 import logger from './logger.js';
 import AuthManager from './auth.js';
 import { refreshAccessToken } from './lib/microsoft-auth.js';
 import { encode as toonEncode } from '@toon-format/toon';
 import type { AppSecrets } from './secrets.js';
-import { getCloudEndpoints } from './cloud-config.js';
-import { getRequestTokens } from './request-context.js';
 
 interface GraphRequestOptions {
   headers?: Record<string, string>;
@@ -37,6 +39,8 @@ interface McpResponse {
 class GraphClient {
   private authManager: AuthManager;
   private secrets: AppSecrets;
+  private accessToken: string | null = null;
+  private refreshToken: string | null = null;
   private readonly outputFormat: 'json' | 'toon' = 'json';
 
   constructor(
@@ -49,11 +53,16 @@ class GraphClient {
     this.outputFormat = outputFormat;
   }
 
+  setOAuthTokens(accessToken: string, refreshToken?: string): void {
+    this.accessToken = accessToken;
+    this.refreshToken = refreshToken || null;
+  }
+
   async makeRequest(endpoint: string, options: GraphRequestOptions = {}): Promise<unknown> {
-    const contextTokens = getRequestTokens();
+    // Use OAuth tokens if available, otherwise fall back to authManager
     let accessToken =
-      options.accessToken ?? contextTokens?.accessToken ?? (await this.authManager.getToken());
-    const refreshToken = options.refreshToken ?? contextTokens?.refreshToken;
+      options.accessToken || this.accessToken || (await this.authManager.getToken());
+    let refreshToken = options.refreshToken || this.refreshToken;
 
     if (!accessToken) {
       throw new Error('No access token available');
@@ -64,8 +73,13 @@ class GraphClient {
 
       if (response.status === 401 && refreshToken) {
         // Token expired, try to refresh
-        const newTokens = await this.refreshAccessToken(refreshToken);
-        accessToken = newTokens.accessToken;
+        await this.refreshAccessToken(refreshToken);
+
+        // Update token for retry
+        accessToken = this.accessToken || accessToken;
+        if (!accessToken) {
+          throw new Error('Failed to refresh access token');
+        }
 
         // Retry the request with new token
         response = await this.performRequest(endpoint, accessToken, options);
@@ -122,9 +136,7 @@ class GraphClient {
     }
   }
 
-  private async refreshAccessToken(
-    refreshToken: string
-  ): Promise<{ accessToken: string; refreshToken?: string }> {
+  private async refreshAccessToken(refreshToken: string): Promise<void> {
     const tenantId = this.secrets.tenantId || 'common';
     const clientId = this.secrets.clientId;
     const clientSecret = this.secrets.clientSecret;
@@ -136,18 +148,11 @@ class GraphClient {
       logger.info('GraphClient: Refreshing token with public client');
     }
 
-    const response = await refreshAccessToken(
-      refreshToken,
-      clientId,
-      clientSecret,
-      tenantId,
-      this.secrets.cloudType
-    );
-
-    return {
-      accessToken: response.access_token,
-      refreshToken: response.refresh_token,
-    };
+    const response = await refreshAccessToken(refreshToken, clientId, clientSecret, tenantId);
+    this.accessToken = response.access_token;
+    if (response.refresh_token) {
+      this.refreshToken = response.refresh_token;
+    }
   }
 
   private async performRequest(
@@ -155,10 +160,7 @@ class GraphClient {
     accessToken: string,
     options: GraphRequestOptions
   ): Promise<Response> {
-    const cloudEndpoints = getCloudEndpoints(this.secrets.cloudType);
-    const url = `${cloudEndpoints.graphApi}/v1.0${endpoint}`;
-
-    logger.info(`[GRAPH CLIENT] Final URL being sent to Microsoft: ${url}`);
+    const url = `https://graph.microsoft.com/v1.0${endpoint}`;
 
     const headers: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
@@ -248,7 +250,7 @@ class GraphClient {
       const removeODataProps = (obj: Record<string, unknown>): void => {
         if (typeof obj === 'object' && obj !== null) {
           Object.keys(obj).forEach((key) => {
-            if (key.startsWith('@odata.') && key !== '@odata.nextLink') {
+            if (key.startsWith('@odata.')) {
               delete obj[key];
             } else if (typeof obj[key] === 'object') {
               removeODataProps(obj[key] as Record<string, unknown>);
@@ -284,7 +286,7 @@ class GraphClient {
     const removeODataProps = (obj: Record<string, unknown>): void => {
       if (typeof obj === 'object' && obj !== null) {
         Object.keys(obj).forEach((key) => {
-          if (key.startsWith('@odata.') && key !== '@odata.nextLink') {
+          if (key.startsWith('@odata.')) {
             delete obj[key];
           } else if (typeof obj[key] === 'object') {
             removeODataProps(obj[key] as Record<string, unknown>);

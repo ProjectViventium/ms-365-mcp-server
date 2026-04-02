@@ -1,3 +1,7 @@
+/* VIVENTIUM START
+ * Purpose: Viventium-owned addition copied into LibreChat fork.
+ * Details: docs/requirements_and_learnings/05_Open_Source_Modifications.md#librechat-viventium-additions
+ * VIVENTIUM END */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -14,10 +18,9 @@ import {
   microsoftBearerTokenAuthMiddleware,
   refreshAccessToken,
 } from './lib/microsoft-auth.js';
+import { buildMicrosoftAuthorizeUrl } from './http/buildMicrosoftAuthorizeUrl.js';
 import type { CommandOptions } from './cli.ts';
 import { getSecrets, type AppSecrets } from './secrets.js';
-import { getCloudEndpoints } from './cloud-config.js';
-import { requestContext } from './request-context.js';
 
 /**
  * Parse HTTP option into host and port components.
@@ -51,9 +54,6 @@ class MicrosoftGraphServer {
   private graphClient: GraphClient | null;
   private server: McpServer | null;
   private secrets: AppSecrets | null;
-  private version: string = '0.0.0';
-  private multiAccount: boolean = false;
-  private accountNames: string[] = [];
 
   constructor(authManager: AuthManager, options: CommandOptions = {}) {
     this.authManager = authManager;
@@ -63,69 +63,40 @@ class MicrosoftGraphServer {
     this.secrets = null;
   }
 
-  private createMcpServer(): McpServer {
-    const server = new McpServer({
+  async initialize(version: string): Promise<void> {
+    // Load secrets first
+    this.secrets = await getSecrets();
+
+    // Initialize GraphClient with secrets
+    const outputFormat = this.options.toon ? 'toon' : 'json';
+    this.graphClient = new GraphClient(this.authManager, this.secrets, outputFormat);
+
+    this.server = new McpServer({
       name: 'Microsoft365MCP',
-      version: this.version,
+      version,
     });
 
     const shouldRegisterAuthTools = !this.options.http || this.options.enableAuthTools;
     if (shouldRegisterAuthTools) {
-      registerAuthTools(server, this.authManager);
-    }
-
-    if (this.options.discovery) {
-      registerDiscoveryTools(
-        server,
-        this.graphClient!,
-        this.options.readOnly,
-        this.options.orgMode,
-        this.authManager,
-        this.multiAccount
-      );
-    } else {
-      registerGraphTools(
-        server,
-        this.graphClient!,
-        this.options.readOnly,
-        this.options.enabledTools,
-        this.options.orgMode,
-        this.authManager,
-        this.multiAccount,
-        this.accountNames
-      );
-    }
-
-    return server;
-  }
-
-  async initialize(version: string): Promise<void> {
-    this.secrets = await getSecrets();
-    this.version = version;
-
-    // Detect multi-account mode and cache account names for schema enum
-    try {
-      this.multiAccount = await this.authManager.isMultiAccount();
-      if (this.multiAccount) {
-        const accounts = await this.authManager.listAccounts();
-        this.accountNames = accounts.map((a) => a.username).filter((u): u is string => !!u);
-        logger.info(
-          `Multi-account mode detected (${this.accountNames.length} accounts): "account" parameter will be injected into all tool schemas`
-        );
-      }
-    } catch (err) {
-      logger.warn(`Failed to detect multi-account mode: ${(err as Error).message}`);
-    }
-
-    const outputFormat = this.options.toon ? 'toon' : 'json';
-    this.graphClient = new GraphClient(this.authManager, this.secrets, outputFormat);
-
-    if (!this.options.http) {
-      this.server = this.createMcpServer();
+      registerAuthTools(this.server, this.authManager);
     }
 
     if (this.options.discovery) {
       logger.info('Discovery mode enabled (experimental) - registering discovery tool only');
+      registerDiscoveryTools(
+        this.server,
+        this.graphClient,
+        this.options.readOnly,
+        this.options.orgMode
+      );
+    } else {
+      registerGraphTools(
+        this.server,
+        this.graphClient,
+        this.options.readOnly,
+        this.options.enabledTools,
+        this.options.orgMode
+      );
     }
   }
 
@@ -184,7 +155,7 @@ class MicrosoftGraphServer {
 
         const scopes = buildScopesFromEndpoints(this.options.orgMode, this.options.enabledTools);
 
-        const metadata: Record<string, unknown> = {
+        res.json({
           issuer: url.origin,
           authorization_endpoint: `${url.origin}/authorize`,
           token_endpoint: `${url.origin}/token`,
@@ -194,13 +165,7 @@ class MicrosoftGraphServer {
           token_endpoint_auth_methods_supported: ['none'],
           code_challenge_methods_supported: ['S256'],
           scopes_supported: scopes,
-        };
-
-        if (this.options.enableDynamicRegistration) {
-          metadata.registration_endpoint = `${url.origin}/register`;
-        }
-
-        res.json(metadata);
+        });
       });
 
       // OAuth Protected Resource Discovery
@@ -219,65 +184,25 @@ class MicrosoftGraphServer {
         });
       });
 
-      if (this.options.enableDynamicRegistration) {
-        app.post('/register', async (req, res) => {
-          const body = req.body;
-          logger.info('Client registration request', { body });
-
-          const clientId = `mcp-client-${Date.now()}`;
-
-          res.status(201).json({
-            client_id: clientId,
-            client_id_issued_at: Math.floor(Date.now() / 1000),
-            redirect_uris: body.redirect_uris || [],
-            grant_types: body.grant_types || ['authorization_code', 'refresh_token'],
-            response_types: body.response_types || ['code'],
-            token_endpoint_auth_method: body.token_endpoint_auth_method || 'none',
-            client_name: body.client_name || 'MCP Client',
-          });
-        });
-      }
-
       // Authorization endpoint - redirects to Microsoft
       app.get('/authorize', async (req, res) => {
         const url = new URL(req.url!, `${req.protocol}://${req.get('host')}`);
         const tenantId = this.secrets?.tenantId || 'common';
         const clientId = this.secrets!.clientId;
-        const cloudEndpoints = getCloudEndpoints(this.secrets!.cloudType);
-        const microsoftAuthUrl = new URL(
-          `${cloudEndpoints.authority}/${tenantId}/oauth2/v2.0/authorize`
-        );
-
-        // Only forward parameters that Microsoft OAuth 2.0 v2.0 supports
-        const allowedParams = [
-          'response_type',
-          'redirect_uri',
-          'scope',
-          'state',
-          'response_mode',
-          'code_challenge',
-          'code_challenge_method',
-          'prompt',
-          'login_hint',
-          'domain_hint',
-        ];
-
-        allowedParams.forEach((param) => {
-          const value = url.searchParams.get(param);
-          if (value) {
-            microsoftAuthUrl.searchParams.set(param, value);
-          }
+        const microsoftAuthUrl = buildMicrosoftAuthorizeUrl({
+          requestUrl: url,
+          tenantId,
+          clientId,
+          defaultScope: 'User.Read Files.Read Mail.Read',
+          /**
+           * IMPORTANT:
+           * The MCP SDK appends `prompt=consent` automatically when `offline_access` is included.
+           * In tenants with restricted user-consent policies, this forces non-admin users into
+           * AADSTS90094 / "Need admin approval" even when tenant-wide admin consent exists.
+           */
+          stripPromptConsent: true,
         });
 
-        // Use our Microsoft app's client_id
-        microsoftAuthUrl.searchParams.set('client_id', clientId);
-
-        // Ensure we have the minimal required scopes if none provided
-        if (!microsoftAuthUrl.searchParams.get('scope')) {
-          microsoftAuthUrl.searchParams.set('scope', 'User.Read Files.Read Mail.Read');
-        }
-
-        // Redirect to Microsoft's authorization page
         res.redirect(microsoftAuthUrl.toString());
       });
 
@@ -318,14 +243,12 @@ class MicrosoftGraphServer {
             const clientId = this.secrets!.clientId;
             const clientSecret = this.secrets?.clientSecret;
 
-            logger.info('Token endpoint: authorization_code exchange', {
-              redirect_uri: body.redirect_uri,
-              has_code: !!body.code,
-              has_code_verifier: !!body.code_verifier,
-              clientId,
-              tenantId,
-              hasClientSecret: !!clientSecret,
-            });
+            // Log whether using public or confidential client
+            if (clientSecret) {
+              logger.info('Token endpoint: Using confidential client with client_secret');
+            } else {
+              logger.info('Token endpoint: Using public client without client_secret');
+            }
 
             const result = await exchangeCodeForToken(
               body.code as string,
@@ -333,8 +256,7 @@ class MicrosoftGraphServer {
               clientId,
               clientSecret,
               tenantId,
-              body.code_verifier as string | undefined,
-              this.secrets!.cloudType
+              body.code_verifier as string | undefined
             );
             res.json(result);
           } else if (body.grant_type === 'refresh_token') {
@@ -353,8 +275,7 @@ class MicrosoftGraphServer {
               body.refresh_token as string,
               clientId,
               clientSecret,
-              tenantId,
-              this.secrets!.cloudType
+              tenantId
             );
             res.json(result);
           } else {
@@ -388,33 +309,25 @@ class MicrosoftGraphServer {
           req: Request & { microsoftAuth?: { accessToken: string; refreshToken: string } },
           res: Response
         ) => {
-          const handler = async () => {
-            const server = this.createMcpServer();
+          try {
+            // Set OAuth tokens in the GraphClient if available
+            if (req.microsoftAuth) {
+              this.graphClient!.setOAuthTokens(
+                req.microsoftAuth.accessToken,
+                req.microsoftAuth.refreshToken
+              );
+            }
+
             const transport = new StreamableHTTPServerTransport({
               sessionIdGenerator: undefined, // Stateless mode
             });
 
             res.on('close', () => {
               transport.close();
-              server.close();
             });
 
-            await server.connect(transport);
+            await this.server!.connect(transport);
             await transport.handleRequest(req as any, res as any, undefined);
-          };
-
-          try {
-            if (req.microsoftAuth) {
-              await requestContext.run(
-                {
-                  accessToken: req.microsoftAuth.accessToken,
-                  refreshToken: req.microsoftAuth.refreshToken,
-                },
-                handler
-              );
-            } else {
-              await handler();
-            }
           } catch (error) {
             logger.error('Error handling MCP GET request:', error);
             if (!res.headersSent) {
@@ -438,33 +351,25 @@ class MicrosoftGraphServer {
           req: Request & { microsoftAuth?: { accessToken: string; refreshToken: string } },
           res: Response
         ) => {
-          const handler = async () => {
-            const server = this.createMcpServer();
+          try {
+            // Set OAuth tokens in the GraphClient if available
+            if (req.microsoftAuth) {
+              this.graphClient!.setOAuthTokens(
+                req.microsoftAuth.accessToken,
+                req.microsoftAuth.refreshToken
+              );
+            }
+
             const transport = new StreamableHTTPServerTransport({
               sessionIdGenerator: undefined, // Stateless mode
             });
 
             res.on('close', () => {
               transport.close();
-              server.close();
             });
 
-            await server.connect(transport);
+            await this.server!.connect(transport);
             await transport.handleRequest(req as any, res as any, req.body);
-          };
-
-          try {
-            if (req.microsoftAuth) {
-              await requestContext.run(
-                {
-                  accessToken: req.microsoftAuth.accessToken,
-                  refreshToken: req.microsoftAuth.refreshToken,
-                },
-                handler
-              );
-            } else {
-              await handler();
-            }
           } catch (error) {
             logger.error('Error handling MCP POST request:', error);
             if (!res.headersSent) {

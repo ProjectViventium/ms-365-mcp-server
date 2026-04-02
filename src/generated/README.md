@@ -1,3 +1,7 @@
+<!-- VIVENTIUM START
+Purpose: Viventium-owned addition copied into LibreChat fork.
+Details: docs/requirements_and_learnings/05_Open_Source_Modifications.md#librechat-viventium-additions
+VIVENTIUM END -->
 # MS 365 OpenAPI Client Generation
 
 This directory contains the generated TypeScript client for the Microsoft 365 API based on the OpenAPI specification.

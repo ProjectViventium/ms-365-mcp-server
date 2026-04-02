@@ -1,3 +1,7 @@
+/* VIVENTIUM START
+ * Purpose: Viventium-owned addition copied into LibreChat fork.
+ * Details: docs/requirements_and_learnings/05_Open_Source_Modifications.md#librechat-viventium-additions
+ * VIVENTIUM END */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseArgs } from '../src/cli.js';
 import { registerGraphTools } from '../src/graph-tools.js';
@@ -71,8 +75,7 @@ describe('Read-Only Mode', () => {
 
     registerGraphTools(mockServer, {} as GraphClient, options.readOnly);
 
-    // 1 GET endpoint + 1 parse-teams-url utility tool
-    expect(mockServer.tool).toHaveBeenCalledTimes(2);
+    expect(mockServer.tool).toHaveBeenCalledTimes(1);
 
     const toolCalls = mockServer.tool.mock.calls.map((call: unknown[]) => call[0]);
     expect(toolCalls).toContain('list-mail-messages');
@@ -88,8 +91,7 @@ describe('Read-Only Mode', () => {
 
     registerGraphTools(mockServer, {} as GraphClient, options.readOnly);
 
-    // 3 mocked endpoints + 1 parse-teams-url utility tool
-    expect(mockServer.tool).toHaveBeenCalledTimes(4);
+    expect(mockServer.tool).toHaveBeenCalledTimes(3);
 
     const toolCalls = mockServer.tool.mock.calls.map((call: unknown[]) => call[0]);
     expect(toolCalls).toContain('list-mail-messages');

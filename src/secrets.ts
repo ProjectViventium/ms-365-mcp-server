@@ -1,3 +1,7 @@
+/* VIVENTIUM START
+ * Purpose: Viventium-owned addition copied into LibreChat fork.
+ * Details: docs/requirements_and_learnings/05_Open_Source_Modifications.md#librechat-viventium-additions
+ * VIVENTIUM END */
 /**
  * Secrets management module with optional Azure Key Vault support.
  *
@@ -6,7 +10,6 @@
  */
 
 import logger from './logger.js';
-import { parseCloudType, getDefaultClientId, type CloudType } from './cloud-config.js';
 
 /**
  * Configuration values that can be retrieved from secrets storage.
@@ -15,7 +18,6 @@ export interface AppSecrets {
   clientId: string;
   tenantId: string;
   clientSecret?: string;
-  cloudType: CloudType;
 }
 
 /**
@@ -30,12 +32,10 @@ interface SecretsProvider {
  */
 class EnvironmentSecretsProvider implements SecretsProvider {
   async getSecrets(): Promise<AppSecrets> {
-    const cloudType = parseCloudType(process.env.MS365_MCP_CLOUD_TYPE);
     return {
-      clientId: process.env.MS365_MCP_CLIENT_ID || getDefaultClientId(cloudType),
+      clientId: process.env.MS365_MCP_CLIENT_ID || '',
       tenantId: process.env.MS365_MCP_TENANT_ID || 'common',
       clientSecret: process.env.MS365_MCP_CLIENT_SECRET,
-      cloudType,
     };
   }
 }
@@ -48,7 +48,6 @@ class EnvironmentSecretsProvider implements SecretsProvider {
  *   - ms365-mcp-client-id -> clientId
  *   - ms365-mcp-tenant-id -> tenantId
  *   - ms365-mcp-client-secret -> clientSecret (optional)
- *   - ms365-mcp-cloud-type -> cloudType (optional, defaults to 'global')
  */
 class KeyVaultSecretsProvider implements SecretsProvider {
   private vaultUrl: string;
@@ -67,14 +66,11 @@ class KeyVaultSecretsProvider implements SecretsProvider {
 
     logger.info(`Fetching secrets from Key Vault: ${this.vaultUrl}`);
 
-    const [clientIdSecret, tenantIdSecret, clientSecretResult, cloudTypeResult] = await Promise.all(
-      [
-        client.getSecret('ms365-mcp-client-id'),
-        client.getSecret('ms365-mcp-tenant-id').catch(() => null),
-        client.getSecret('ms365-mcp-client-secret').catch(() => null),
-        client.getSecret('ms365-mcp-cloud-type').catch(() => null),
-      ]
-    );
+    const [clientIdSecret, tenantIdSecret, clientSecretResult] = await Promise.all([
+      client.getSecret('ms365-mcp-client-id'),
+      client.getSecret('ms365-mcp-tenant-id').catch(() => null),
+      client.getSecret('ms365-mcp-client-secret').catch(() => null),
+    ]);
 
     if (!clientIdSecret.value) {
       throw new Error('Required secret ms365-mcp-client-id not found in Key Vault');
@@ -86,7 +82,6 @@ class KeyVaultSecretsProvider implements SecretsProvider {
       clientId: clientIdSecret.value,
       tenantId: tenantIdSecret?.value || 'common',
       clientSecret: clientSecretResult?.value,
-      cloudType: parseCloudType(cloudTypeResult?.value),
     };
   }
 }

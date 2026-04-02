@@ -1,3 +1,7 @@
+/* VIVENTIUM START
+ * Purpose: Viventium-owned addition copied into LibreChat fork.
+ * Details: docs/requirements_and_learnings/05_Open_Source_Modifications.md#librechat-viventium-additions
+ * VIVENTIUM END */
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
@@ -11,7 +15,7 @@ export default defineConfig({
   sourcemap: false,
   dts: false,
   publicDir: false,
-  onSuccess: process.platform === 'win32' ? undefined : 'chmod +x dist/index.js',
+  onSuccess: 'chmod +x dist/index.js',
   loader: {
     '.json': 'copy',
   },
