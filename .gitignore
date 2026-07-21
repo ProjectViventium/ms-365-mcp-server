@@ -3,6 +3,8 @@
 .env.*
 !.env.example
 node_modules/
+dist/
+logs/
 .venv*/
 __pycache__/
 .local_artifacts/

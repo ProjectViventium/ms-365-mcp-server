@@ -11,7 +11,7 @@ describe('normalizeGraphPath', () => {
   it('decodes HTML entities in Graph paths', () => {
     // ===== PAI Mod Start =====
     const input =
-      "/drives/:driveId/items/:driveItemId/workbook/worksheets/:workbookWorksheetId/range(address&#x3D;&#x27;:address&#x27;)";
+      '/drives/:driveId/items/:driveItemId/workbook/worksheets/:workbookWorksheetId/range(address&#x3D;&#x27;:address&#x27;)';
     const expected =
       "/drives/:driveId/items/:driveItemId/workbook/worksheets/:workbookWorksheetId/range(address=':address')";
 
@@ -21,7 +21,7 @@ describe('normalizeGraphPath', () => {
 
   it('decodes &amp; in Graph paths', () => {
     // ===== PAI Mod Start =====
-    const input = "/sites/:siteId/getByPath(path&#x3D;&#x27;:path&#x27;)&amp;$select=id";
+    const input = '/sites/:siteId/getByPath(path&#x3D;&#x27;:path&#x27;)&amp;$select=id';
     const expected = "/sites/:siteId/getByPath(path=':path')&$select=id";
 
     expect(normalizeGraphPath(input)).toBe(expected);

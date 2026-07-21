@@ -6,6 +6,16 @@ import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
 
+const TYPESCRIPT_PROVENANCE = `/* VIVENTIUM START
+ * Purpose: Viventium-owned addition copied into LibreChat fork.
+ * Details: docs/requirements_and_learnings/05_Open_Source_Modifications.md#librechat-viventium-additions
+ * VIVENTIUM END */
+`;
+
+export function addTypeScriptProvenance(source) {
+  return source.startsWith(TYPESCRIPT_PROVENANCE) ? source : `${TYPESCRIPT_PROVENANCE}${source}`;
+}
+
 export function generateMcpTools(openApiSpec, outputDir) {
   try {
     console.log('Generating client code from OpenAPI spec using openapi-zod-client...');
@@ -40,6 +50,7 @@ export function generateMcpTools(openApiSpec, outputDir) {
     console.log('Stripping unused errors arrays from endpoint definitions...');
     // I didn't make up this crazy regex myself; you know who did. It seems works though.
     clientCode = clientCode.replace(/,?\s*errors:\s*\[[\s\S]*?],?(?=\s*})/g, '');
+    clientCode = addTypeScriptProvenance(clientCode);
 
     fs.writeFileSync(clientFilePath, clientCode);
 

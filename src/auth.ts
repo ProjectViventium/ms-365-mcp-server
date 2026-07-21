@@ -63,7 +63,7 @@ const SELECTED_ACCOUNT_PATH = path.join(FALLBACK_DIR, '..', '.selected-account.j
 function createMsalConfig(secrets: AppSecrets): Configuration {
   return {
     auth: {
-      clientId: secrets.clientId || ('084a3e9f' + '-a9f4-43f7-89f9-d229cf97853e'),
+      clientId: secrets.clientId || '084a3e9f' + '-a9f4-43f7-89f9-d229cf97853e',
       authority: `https://login.microsoftonline.com/${secrets.tenantId || 'common'}`,
     },
   };
