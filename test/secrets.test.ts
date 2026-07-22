@@ -17,6 +17,15 @@ describe('secrets module', () => {
   });
 
   describe('environment secrets provider', () => {
+    it('fails closed when the Azure app client ID is missing', async () => {
+      vi.stubEnv('MS365_MCP_CLIENT_ID', '');
+      vi.stubEnv('MS365_MCP_KEYVAULT_URL', '');
+
+      await expect(getSecrets()).rejects.toThrow(
+        'MS365_MCP_CLIENT_ID is required. Configure an Azure app registration before connecting Microsoft 365.'
+      );
+    });
+
     it('should read secrets from environment variables', async () => {
       vi.stubEnv('MS365_MCP_CLIENT_ID', 'test-client-id');
       vi.stubEnv('MS365_MCP_TENANT_ID', 'test-tenant-id');
