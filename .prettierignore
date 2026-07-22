@@ -1,0 +1,3 @@
+# Generated from the pinned Microsoft Graph OpenAPI input.
+src/generated/**
+openapi/**

@@ -5,6 +5,16 @@
 import fs from 'fs';
 import yaml from 'js-yaml';
 
+const YAML_PROVENANCE = `# VIVENTIUM START
+# Purpose: Viventium-owned addition copied into LibreChat fork.
+# Details: docs/requirements_and_learnings/05_Open_Source_Modifications.md#librechat-viventium-additions
+# VIVENTIUM END
+`;
+
+export function addYamlProvenance(source) {
+  return source.startsWith(YAML_PROVENANCE) ? source : `${YAML_PROVENANCE}${source}`;
+}
+
 export function createAndSaveSimplifiedOpenAPI(endpointsFile, openapiFile, openapiTrimmedFile) {
   const allEndpoints = JSON.parse(fs.readFileSync(endpointsFile, 'utf8'));
   const endpoints = allEndpoints.filter((endpoint) => !endpoint.disabled);
@@ -63,7 +73,7 @@ export function createAndSaveSimplifiedOpenAPI(endpointsFile, openapiFile, opena
   const usedSchemas = findUsedSchemas(openApiSpec);
   pruneUnusedSchemas(openApiSpec, usedSchemas);
 
-  fs.writeFileSync(openapiTrimmedFile, yaml.dump(openApiSpec));
+  fs.writeFileSync(openapiTrimmedFile, addYamlProvenance(yaml.dump(openApiSpec)));
 }
 
 function removeODataTypeRecursively(obj) {

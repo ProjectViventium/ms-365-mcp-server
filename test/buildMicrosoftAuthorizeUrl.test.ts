@@ -9,7 +9,10 @@ describe('buildMicrosoftAuthorizeUrl', () => {
   test('strips prompt=consent but keeps other prompt values', () => {
     const requestUrl = new URL('http://localhost:6274/authorize');
     requestUrl.searchParams.set('response_type', 'code');
-    requestUrl.searchParams.set('redirect_uri', 'http://localhost:3080/api/mcp/ms-365/oauth/callback');
+    requestUrl.searchParams.set(
+      'redirect_uri',
+      'http://localhost:3080/api/mcp/ms-365/oauth/callback'
+    );
     requestUrl.searchParams.set('scope', 'User.Read offline_access');
     requestUrl.searchParams.append('prompt', 'consent');
     requestUrl.searchParams.append('prompt', 'select_account');
@@ -33,7 +36,9 @@ describe('buildMicrosoftAuthorizeUrl', () => {
   });
 
   test('keeps prompt=consent if stripPromptConsent=false', () => {
-    const requestUrl = new URL('http://localhost:6274/authorize?prompt=consent&scope=offline_access');
+    const requestUrl = new URL(
+      'http://localhost:6274/authorize?prompt=consent&scope=offline_access'
+    );
 
     const url = buildMicrosoftAuthorizeUrl({
       requestUrl,
@@ -59,5 +64,3 @@ describe('buildMicrosoftAuthorizeUrl', () => {
     expect(url.searchParams.get('scope')).toBe('User.Read');
   });
 });
-
-

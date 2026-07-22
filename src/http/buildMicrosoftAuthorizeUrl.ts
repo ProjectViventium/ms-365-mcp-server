@@ -31,15 +31,11 @@ export function buildMicrosoftAuthorizeUrl(params: {
    */
   stripPromptConsent?: boolean;
 }): URL {
-  const {
-    requestUrl,
-    tenantId,
-    clientId,
-    defaultScope,
-    stripPromptConsent = true,
-  } = params;
+  const { requestUrl, tenantId, clientId, defaultScope, stripPromptConsent = true } = params;
 
-  const microsoftAuthUrl = new URL(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`);
+  const microsoftAuthUrl = new URL(
+    `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`
+  );
 
   // Only forward parameters that Microsoft OAuth 2.0 v2.0 supports
   const allowedParams = [
@@ -66,7 +62,10 @@ export function buildMicrosoftAuthorizeUrl(params: {
   if (promptValues.length > 0) {
     const normalized = new Set<string>();
     for (const raw of promptValues) {
-      for (const token of raw.split(/\s+/).map((t) => t.trim()).filter(Boolean)) {
+      for (const token of raw
+        .split(/\s+/)
+        .map((t) => t.trim())
+        .filter(Boolean)) {
         if (stripPromptConsent && token.toLowerCase() === 'consent') {
           continue;
         }
@@ -88,5 +87,3 @@ export function buildMicrosoftAuthorizeUrl(params: {
 
   return microsoftAuthUrl;
 }
-
-

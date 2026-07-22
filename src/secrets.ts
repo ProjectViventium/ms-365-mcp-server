@@ -32,8 +32,15 @@ interface SecretsProvider {
  */
 class EnvironmentSecretsProvider implements SecretsProvider {
   async getSecrets(): Promise<AppSecrets> {
+    const clientId = process.env.MS365_MCP_CLIENT_ID?.trim();
+    if (!clientId) {
+      throw new Error(
+        'MS365_MCP_CLIENT_ID is required. Configure an Azure app registration before connecting Microsoft 365.'
+      );
+    }
+
     return {
-      clientId: process.env.MS365_MCP_CLIENT_ID || '',
+      clientId,
       tenantId: process.env.MS365_MCP_TENANT_ID || 'common',
       clientSecret: process.env.MS365_MCP_CLIENT_SECRET,
     };

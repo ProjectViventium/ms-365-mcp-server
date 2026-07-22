@@ -2,6 +2,7 @@
 Purpose: Viventium-owned addition copied into LibreChat fork.
 Details: docs/requirements_and_learnings/05_Open_Source_Modifications.md#librechat-viventium-additions
 VIVENTIUM END -->
+
 # ms-365-mcp-server
 
 [![npm version](https://img.shields.io/npm/v/@softeria/ms-365-mcp-server.svg)](https://www.npmjs.com/package/@softeria/ms-365-mcp-server) [![build status](https://github.com/softeria/ms-365-mcp-server/actions/workflows/build.yml/badge.svg)](https://github.com/softeria/ms-365-mcp-server/actions/workflows/build.yml) [![license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/softeria/ms-365-mcp-server/blob/main/LICENSE)
@@ -322,7 +323,8 @@ registration:
    MS365_MCP_TENANT_ID=common
    ```
 
-With these configured, the server will use your custom Azure app instead of the built-in one.
+The client ID is required. Viventium intentionally does not fall back to another publisher's Azure
+app registration, so the Microsoft consent screen always corresponds to the registration you chose.
 
 #### 3. Bring Your Own Token (BYOT)
 
@@ -330,7 +332,9 @@ If you are running ms-365-mcp-server as part of a larger system that manages Mic
 provide an access token directly to this MCP server:
 
 ```bash
-MS365_MCP_OAUTH_TOKEN=your_oauth_token npx @softeria/ms-365-mcp-server
+MS365_MCP_CLIENT_ID=your-azure-ad-app-client-id-here \
+MS365_MCP_OAUTH_TOKEN=your_oauth_token \
+npx @softeria/ms-365-mcp-server
 ```
 
 This method:
@@ -396,7 +400,7 @@ Environment variables:
 - `MS365_MCP_OUTPUT_FORMAT=toon`: Enable TOON output format (alternative to --toon flag)
 - `LOG_LEVEL`: Set logging level (default: 'info')
 - `SILENT=true|1`: Disable console output
-- `MS365_MCP_CLIENT_ID`: Custom Azure app client ID (defaults to built-in app)
+- `MS365_MCP_CLIENT_ID`: Required Azure app client ID; no third-party fallback is used
 - `MS365_MCP_TENANT_ID`: Custom tenant ID (defaults to 'common' for multi-tenant)
 - `MS365_MCP_OAUTH_TOKEN`: Pre-existing OAuth token for Microsoft Graph API (BYOT method)
 - `MS365_MCP_KEYVAULT_URL`: Azure Key Vault URL for secrets management (see Azure Key Vault section)
