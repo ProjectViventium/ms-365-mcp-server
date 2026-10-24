@@ -177,7 +177,7 @@ To access shared mailboxes, you need:
 **Finding shared mailboxes**: Use the `list-users` tool to discover available users and shared mailboxes in your
 organization.
 
-Example: `list-shared-mailbox-messages` with `user-id` set to `shared-mailbox@company.com`
+Example: `list-shared-mailbox-messages` with `user-id` set to `shared-mailbox@example.com`
 
 ## Quick Start Example
 
@@ -278,6 +278,17 @@ This mode:
 - **Requires** `Authorization: Bearer <token>` for all MCP requests
 - Validates tokens with Microsoft Graph API
 - **Disables** login/logout tools by default (use `--enable-auth-tools` to enable them)
+
+<!-- VIVENTIUM START: HTTP request isolation and native stateless lifecycle. -->
+
+Each authenticated MCP POST uses its own server, transport, and Graph client. Access and refresh
+tokens stay with that request, including overlapping requests from different accounts. Closing the
+response closes its MCP server and transport. This stateless mode returns HTTP 405 for authenticated
+standalone MCP GET streams; unauthenticated MCP requests still return HTTP 401. Reconnecting,
+initializing again, and listing tools must not require restarting the process. Stdio keeps its
+single persistent server. This does not change OAuth scopes or token storage.
+
+<!-- VIVENTIUM END -->
 
 MCP clients will automatically handle the OAuth flow when they see the advertised capabilities.
 
@@ -496,7 +507,7 @@ If you're having problems or need help:
 
 - Create an [issue](https://github.com/softeria/ms-365-mcp-server/issues)
 - Start a [discussion](https://github.com/softeria/ms-365-mcp-server/discussions)
-- Email: eirikb@eirikb.no
+- Maintainer contact: [upstream support](https://github.com/softeria/ms-365-mcp-server#support)
 - Discord: https://discord.gg/WvGVNScrAZ or @eirikb
 
 ## License

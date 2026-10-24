@@ -51,14 +51,13 @@ function parseHttpOption(httpOption: string | boolean): { host: string | undefin
 class MicrosoftGraphServer {
   private authManager: AuthManager;
   private options: CommandOptions;
-  private graphClient: GraphClient | null;
   private server: McpServer | null;
   private secrets: AppSecrets | null;
+  private version = '';
 
   constructor(authManager: AuthManager, options: CommandOptions = {}) {
     this.authManager = authManager;
     this.options = options;
-    this.graphClient = null; // Initialized in start() after secrets are loaded
     this.server = null;
     this.secrets = null;
   }
@@ -66,39 +65,44 @@ class MicrosoftGraphServer {
   async initialize(version: string): Promise<void> {
     // Load secrets first
     this.secrets = await getSecrets();
+    this.version = version;
+    if (!this.options.http) {
+      this.server = this.createServer(this.createGraphClient());
+    }
+  }
 
-    // Initialize GraphClient with secrets
+  private createGraphClient(): GraphClient {
     const outputFormat = this.options.toon ? 'toon' : 'json';
-    this.graphClient = new GraphClient(this.authManager, this.secrets, outputFormat);
+    return new GraphClient(this.authManager, this.secrets!, outputFormat);
+  }
 
-    this.server = new McpServer({
+  /* VIVENTIUM START: Native stateless HTTP requests own their server and token-bearing client. */
+  private createServer(graphClient: GraphClient): McpServer {
+    const server = new McpServer({
       name: 'Microsoft365MCP',
-      version,
+      version: this.version,
     });
 
     const shouldRegisterAuthTools = !this.options.http || this.options.enableAuthTools;
     if (shouldRegisterAuthTools) {
-      registerAuthTools(this.server, this.authManager);
+      registerAuthTools(server, this.authManager);
     }
 
     if (this.options.discovery) {
       logger.info('Discovery mode enabled (experimental) - registering discovery tool only');
-      registerDiscoveryTools(
-        this.server,
-        this.graphClient,
-        this.options.readOnly,
-        this.options.orgMode
-      );
+      registerDiscoveryTools(server, graphClient, this.options.readOnly, this.options.orgMode);
     } else {
       registerGraphTools(
-        this.server,
-        this.graphClient,
+        server,
+        graphClient,
         this.options.readOnly,
         this.options.enabledTools,
         this.options.orgMode
       );
     }
+    return server;
   }
+  /* VIVENTIUM END */
 
   async start(): Promise<void> {
     if (this.options.v) {
@@ -301,48 +305,14 @@ class MicrosoftGraphServer {
       );
 
       // Microsoft Graph MCP endpoints with bearer token auth
-      // Handle both GET and POST methods as required by MCP Streamable HTTP specification
-      app.get(
-        '/mcp',
-        microsoftBearerTokenAuthMiddleware,
-        async (
-          req: Request & { microsoftAuth?: { accessToken: string; refreshToken: string } },
-          res: Response
-        ) => {
-          try {
-            // Set OAuth tokens in the GraphClient if available
-            if (req.microsoftAuth) {
-              this.graphClient!.setOAuthTokens(
-                req.microsoftAuth.accessToken,
-                req.microsoftAuth.refreshToken
-              );
-            }
-
-            const transport = new StreamableHTTPServerTransport({
-              sessionIdGenerator: undefined, // Stateless mode
-            });
-
-            res.on('close', () => {
-              transport.close();
-            });
-
-            await this.server!.connect(transport);
-            await transport.handleRequest(req as any, res as any, undefined);
-          } catch (error) {
-            logger.error('Error handling MCP GET request:', error);
-            if (!res.headersSent) {
-              res.status(500).json({
-                jsonrpc: '2.0',
-                error: {
-                  code: -32603,
-                  message: 'Internal server error',
-                },
-                id: null,
-              });
-            }
-          }
-        }
-      );
+      // Stateless mode has no standalone server event stream.
+      app.get('/mcp', microsoftBearerTokenAuthMiddleware, (_req: Request, res: Response) => {
+        res.status(405).json({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'Method not allowed.' },
+          id: null,
+        });
+      });
 
       app.post(
         '/mcp',
@@ -352,24 +322,24 @@ class MicrosoftGraphServer {
           res: Response
         ) => {
           try {
-            // Set OAuth tokens in the GraphClient if available
+            const graphClient = this.createGraphClient();
             if (req.microsoftAuth) {
-              this.graphClient!.setOAuthTokens(
+              graphClient.setOAuthTokens(
                 req.microsoftAuth.accessToken,
                 req.microsoftAuth.refreshToken
               );
             }
-
+            const server = this.createServer(graphClient);
             const transport = new StreamableHTTPServerTransport({
               sessionIdGenerator: undefined, // Stateless mode
             });
 
-            res.on('close', () => {
-              transport.close();
+            res.once('close', () => {
+              void Promise.allSettled([transport.close(), server.close()]);
             });
 
-            await this.server!.connect(transport);
-            await transport.handleRequest(req as any, res as any, req.body);
+            await server.connect(transport);
+            await transport.handleRequest(req, res, req.body);
           } catch (error) {
             logger.error('Error handling MCP POST request:', error);
             if (!res.headersSent) {
